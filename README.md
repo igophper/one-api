@@ -1,5 +1,5 @@
 <p align="right">
-   <strong>中文</strong> | <a href="./README.en.md">English</a>
+   <strong>中文</strong> | <a href="./README.en.md">English</a> | <a href="./README.ja.md">日本語</a>
 </p>
 
 
@@ -51,11 +51,13 @@ _✨ 通过标准的 OpenAI API 格式访问所有的大模型，开箱即用 �
   <a href="https://iamazing.cn/page/reward">赞赏支持</a>
 </p>
 
-> **Note**：本项目为开源项目，使用者必须在遵循 OpenAI 的[使用条款](https://openai.com/policies/terms-of-use)以及**法律法规**的情况下使用，不得用于非法用途。
+> **Note**
+> 本项目为开源项目，使用者必须在遵循 OpenAI 的[使用条款](https://openai.com/policies/terms-of-use)以及**法律法规**的情况下使用，不得用于非法用途。
+> 
+> 根据[《生成式人工智能服务管理暂行办法》](http://www.cac.gov.cn/2023-07/13/c_1690898327029107.htm)的要求，请勿对中国地区公众提供一切未经备案的生成式人工智能服务。
 
-> **Note**：使用 Docker 拉取的最新镜像可能是 `alpha` 版本，如果追求稳定性请手动指定版本。
-
-> **Warning**：从 `v0.3` 版本升级到 `v0.4` 版本需要手动迁移数据库，请手动执行[数据库迁移脚本](./bin/migration_v0.3-v0.4.sql)。
+> **Warning**
+> 使用 Docker 拉取的最新镜像可能是 `alpha` 版本，如果追求稳定性请手动指定版本。
 
 ## 功能
 1. 支持多种大模型：
@@ -66,6 +68,7 @@ _✨ 通过标准的 OpenAI API 格式访问所有的大模型，开箱即用 �
    + [x] [阿里通义千问系列模型](https://help.aliyun.com/document_detail/2400395.html)
    + [x] [讯飞星火认知大模型](https://www.xfyun.cn/doc/spark/Web.html)
    + [x] [智谱 ChatGLM 系列模型](https://bigmodel.cn)
+   + [x] [360 智脑](https://ai.360.cn)
 2. 支持配置镜像以及众多第三方代理服务：
    + [x] [OpenAI-SB](https://openai-sb.com)
    + [x] [API2D](https://api2d.com/r/197971)
@@ -276,14 +279,16 @@ graph LR
    + 例子：`REDIS_CONN_STRING=redis://default:redispw@localhost:49153`
 2. `SESSION_SECRET`：设置之后将使用固定的会话密钥，这样系统重新启动后已登录用户的 cookie 将依旧有效。
    + 例子：`SESSION_SECRET=random_string`
-3. `SQL_DSN`：设置之后将使用指定数据库而非 SQLite，请使用 MySQL 8.0 版本。
-   + 例子：`SQL_DSN=root:123456@tcp(localhost:3306)/oneapi`
+3. `SQL_DSN`：设置之后将使用指定数据库而非 SQLite，请使用 MySQL 或 PostgreSQL。
+   + 例子：
+     + MySQL：`SQL_DSN=root:123456@tcp(localhost:3306)/oneapi`
+     + PostgreSQL：`SQL_DSN=postgres://postgres:123456@localhost:5432/oneapi`（适配中，欢迎反馈）
    + 注意需要提前建立数据库 `oneapi`，无需手动建表，程序将自动建表。
    + 如果使用本地数据库：部署命令可添加 `--network="host"` 以使得容器内的程序可以访问到宿主机上的 MySQL。
    + 如果使用云数据库：如果云服务器需要验证身份，需要在连接参数中添加 `?tls=skip-verify`。
    + 请根据你的数据库配置修改下列参数（或者保持默认值）：
-     + `SQL_MAX_IDLE_CONNS`：最大空闲连接数，默认为 `10`。
-     + `SQL_MAX_OPEN_CONNS`：最大打开连接数，默认为 `100`。
+     + `SQL_MAX_IDLE_CONNS`：最大空闲连接数，默认为 `100`。
+     + `SQL_MAX_OPEN_CONNS`：最大打开连接数，默认为 `1000`。
        + 如果报错 `Error 1040: Too many connections`，请适当减小该值。
      + `SQL_CONN_MAX_LIFETIME`：连接的最大生命周期，默认为 `60`，单位分钟。
 4. `FRONTEND_BASE_URL`：设置之后将重定向页面请求到指定的地址，仅限从服务器设置。
@@ -338,7 +343,8 @@ https://openai.justsong.cn
    + 上游通道 429 了。
 
 ## 相关项目
-[FastGPT](https://github.com/labring/FastGPT): 基于 LLM 大语言模型的知识库问答系统
+* [FastGPT](https://github.com/labring/FastGPT): 基于 LLM 大语言模型的知识库问答系统
+* [ChatGPT Next Web](https://github.com/Yidadaa/ChatGPT-Next-Web):  一键拥有你自己的跨平台 ChatGPT 应用
 
 ## 注意
 

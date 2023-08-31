@@ -26,6 +26,9 @@ func main() {
 	if os.Getenv("GIN_MODE") != "debug" {
 		gin.SetMode(gin.ReleaseMode)
 	}
+	if common.DebugEnabled {
+		common.SysLog("running in debug mode")
+	}
 	// Initialize SQL Database
 	err := model.InitDB()
 	if err != nil {
@@ -74,6 +77,7 @@ func main() {
 		}
 		go controller.AutomaticallyTestChannels(frequency)
 	}
+	controller.InitTokenEncoders()
 
 	// Initialize HTTP server
 	server := gin.Default()

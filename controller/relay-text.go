@@ -5,13 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/gin-gonic/gin"
 	"io"
 	"net/http"
 	"one-api/common"
 	"one-api/model"
 	"strings"
-
-	"github.com/gin-gonic/gin"
+	"time"
 )
 
 const (
@@ -25,9 +25,13 @@ const (
 )
 
 var httpClient *http.Client
+var impatientHTTPClient *http.Client
 
 func init() {
 	httpClient = &http.Client{}
+	impatientHTTPClient = &http.Client{
+		Timeout: 5 * time.Second,
+	}
 }
 
 func relayTextHelper(c *gin.Context, relayMode int) *OpenAIErrorWithStatusCode {
@@ -148,7 +152,7 @@ func relayTextHelper(c *gin.Context, relayMode int) *OpenAIErrorWithStatusCode {
 		apiKey = strings.TrimPrefix(apiKey, "Bearer ")
 		var err error
 		if apiKey, err = getBaiduAccessToken(apiKey); err != nil {
-			return errorWrapper(err, "invalid_auth", http.StatusBadRequest)
+			return errorWrapper(err, "invalid_baidu_config", http.StatusInternalServerError)
 		}
 		fullRequestURL += "?access_token=" + apiKey
 	case APITypePaLM:
@@ -190,7 +194,11 @@ func relayTextHelper(c *gin.Context, relayMode int) *OpenAIErrorWithStatusCode {
 	if err != nil {
 		return errorWrapper(err, "get_user_quota_failed", http.StatusInternalServerError)
 	}
-	if userQuota > 10*preConsumedQuota {
+	err = model.CacheDecreaseUserQuota(userId, preConsumedQuota)
+	if err != nil {
+		return errorWrapper(err, "decrease_user_quota_failed", http.StatusInternalServerError)
+	}
+	if userQuota > 100*preConsumedQuota {
 		// in this case, we do not pre-consume quota
 		// because the user has enough quota
 		preConsumedQuota = 0
@@ -274,6 +282,10 @@ func relayTextHelper(c *gin.Context, relayMode int) *OpenAIErrorWithStatusCode {
 				req.Header.Set("api-key", apiKey)
 			} else {
 				req.Header.Set("Authorization", c.Request.Header.Get("Authorization"))
+				if channelType == common.ChannelTypeOpenRouter {
+					req.Header.Set("HTTP-Referer", "https://github.com/songquanpeng/one-api")
+					req.Header.Set("X-Title", "One API")
+				}
 			}
 		case APITypeClaude:
 			req.Header.Set("x-api-key", apiKey)
@@ -307,53 +319,54 @@ func relayTextHelper(c *gin.Context, relayMode int) *OpenAIErrorWithStatusCode {
 			return errorWrapper(err, "close_request_body_failed", http.StatusInternalServerError)
 		}
 		isStream = isStream || strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream")
+
+		if resp.StatusCode != http.StatusOK {
+			return relayErrorHandler(resp)
+		}
 	}
 
 	var textResponse TextResponse
+	tokenName := c.GetString("token_name")
+	channelId := c.GetInt("channel_id")
 
 	defer func() {
-		if consumeQuota {
-			quota := 0
-			completionRatio := 1.0
-			if strings.HasPrefix(textRequest.Model, "gpt-3.5") {
-				completionRatio = 1.333333
-			}
-			if strings.HasPrefix(textRequest.Model, "gpt-4") {
-				completionRatio = 2
-			}
+		// c.Writer.Flush()
+		go func() {
+			if consumeQuota {
+				quota := 0
+				completionRatio := common.GetCompletionRatio(textRequest.Model)
+				promptTokens = textResponse.Usage.PromptTokens
+				completionTokens = textResponse.Usage.CompletionTokens
 
-			promptTokens = textResponse.Usage.PromptTokens
-			completionTokens = textResponse.Usage.CompletionTokens
+				quota = promptTokens + int(float64(completionTokens)*completionRatio)
+				quota = int(float64(quota) * ratio)
+				if ratio != 0 && quota <= 0 {
+					quota = 1
+				}
+				totalTokens := promptTokens + completionTokens
+				if totalTokens == 0 {
+					// in this case, must be some error happened
+					// we cannot just return, because we may have to return the pre-consumed quota
+					quota = 0
+				}
+				quotaDelta := quota - preConsumedQuota
+				err := model.PostConsumeTokenQuota(tokenId, quotaDelta)
+				if err != nil {
+					common.SysError("error consuming token remain quota: " + err.Error())
+				}
+				err = model.CacheUpdateUserQuota(userId)
+				if err != nil {
+					common.SysError("error update user quota cache: " + err.Error())
+				}
+				if quota != 0 {
+					logContent := fmt.Sprintf("模型倍率 %.2f，分组倍率 %.2f", modelRatio, groupRatio)
+					model.RecordConsumeLog(userId, promptTokens, completionTokens, textRequest.Model, tokenName, quota, logContent)
+					model.UpdateUserUsedQuotaAndRequestCount(userId, quota)
 
-			quota = promptTokens + int(float64(completionTokens)*completionRatio)
-			quota = int(float64(quota) * ratio)
-			if ratio != 0 && quota <= 0 {
-				quota = 1
+					model.UpdateChannelUsedQuota(channelId, quota)
+				}
 			}
-			totalTokens := promptTokens + completionTokens
-			if totalTokens == 0 {
-				// in this case, must be some error happened
-				// we cannot just return, because we may have to return the pre-consumed quota
-				quota = 0
-			}
-			quotaDelta := quota - preConsumedQuota
-			err := model.PostConsumeTokenQuota(tokenId, quotaDelta)
-			if err != nil {
-				common.SysError("error consuming token remain quota: " + err.Error())
-			}
-			err = model.CacheUpdateUserQuota(userId)
-			if err != nil {
-				common.SysError("error update user quota cache: " + err.Error())
-			}
-			if quota != 0 {
-				tokenName := c.GetString("token_name")
-				logContent := fmt.Sprintf("模型倍率 %.2f，分组倍率 %.2f", modelRatio, groupRatio)
-				model.RecordConsumeLog(userId, promptTokens, completionTokens, textRequest.Model, tokenName, quota, logContent)
-				model.UpdateUserUsedQuotaAndRequestCount(userId, quota)
-				channelId := c.GetInt("channel_id")
-				model.UpdateChannelUsedQuota(channelId, quota)
-			}
-		}
+		}()
 	}()
 	switch apiType {
 	case APITypeOpenAI:

@@ -24,6 +24,10 @@ func testChannel(channel *model.Channel, request ChatRequest) (error, *OpenAIErr
 		fallthrough
 	case common.ChannelTypeZhipu:
 		fallthrough
+	case common.ChannelTypeAli:
+		fallthrough
+	case common.ChannelType360:
+		fallthrough
 	case common.ChannelTypeXunfei:
 		return errors.New("该渠道类型当前版本不支持测试，请手动测试"), nil
 	case common.ChannelTypeAzure:
@@ -174,7 +178,7 @@ func testAllChannels(notify bool) error {
 				err = errors.New(fmt.Sprintf("响应时间 %.2fs 超过阈值 %.2fs", float64(milliseconds)/1000.0, float64(disableThreshold)/1000.0))
 				disableChannel(channel.Id, channel.Name, err.Error())
 			}
-			if shouldDisableChannel(openaiErr) {
+			if shouldDisableChannel(openaiErr, -1) {
 				disableChannel(channel.Id, channel.Name, err.Error())
 			}
 			channel.UpdateResponseTime(milliseconds)

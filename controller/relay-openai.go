@@ -4,11 +4,13 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"github.com/gin-gonic/gin"
 	"io"
 	"net/http"
 	"one-api/common"
 	"strings"
+	"time"
 )
 
 func openaiStreamHandler(c *gin.Context, resp *http.Response, relayMode int) (*OpenAIErrorWithStatusCode, string) {
@@ -37,7 +39,13 @@ func openaiStreamHandler(c *gin.Context, resp *http.Response, relayMode int) (*O
 			if data[:6] != "data: " && data[:6] != "[DONE]" {
 				continue
 			}
-			dataChan <- data
+
+			// 控制流传输的速度
+			isOK := make(chan struct{})
+			speed := 15 * time.Millisecond
+			go controlStreamSpeed(dataChan, data, isOK, speed)
+			<-isOK
+			// dataChan <- data
 			data = data[6:]
 			if !strings.HasPrefix(data, "[DONE]") {
 				switch relayMode {
@@ -86,6 +94,77 @@ func openaiStreamHandler(c *gin.Context, resp *http.Response, relayMode int) (*O
 		return errorWrapper(err, "close_response_body_failed", http.StatusInternalServerError), ""
 	}
 	return nil, responseText
+}
+
+type TR struct {
+	Id      string `json:"id"`
+	Object  string `json:"object"`
+	Created int    `json:"created"`
+	Model   string `json:"model"`
+	Choices []struct {
+		Index        int         `json:"index"`
+		FinishReason interface{} `json:"finish_reason"`
+		Delta        struct {
+			Content string `json:"content"`
+		} `json:"delta"`
+		ContentFilterResults struct {
+			Hate struct {
+				Filtered bool   `json:"filtered"`
+				Severity string `json:"severity"`
+			} `json:"hate"`
+			SelfHarm struct {
+				Filtered bool   `json:"filtered"`
+				Severity string `json:"severity"`
+			} `json:"self_harm"`
+			Sexual struct {
+				Filtered bool   `json:"filtered"`
+				Severity string `json:"severity"`
+			} `json:"sexual"`
+			Violence struct {
+				Filtered bool   `json:"filtered"`
+				Severity string `json:"severity"`
+			} `json:"violence"`
+		} `json:"content_filter_results"`
+	} `json:"choices"`
+	Usage interface{} `json:"usage"`
+}
+
+func controlStreamSpeed(dataChan chan string, data string, isOK chan struct{}, speed time.Duration) {
+	j := data[6:]
+	d := data[:6]
+	var src, dst TR
+	err := json.Unmarshal([]byte(j), &src)
+	if err != nil {
+		fmt.Println("json err:", data)
+		dataChan <- data
+		isOK <- struct{}{}
+		return
+	}
+	if len(src.Choices) == 0 {
+		fmt.Println("choices err", src.Choices)
+		dataChan <- data
+		isOK <- struct{}{}
+		return
+	}
+	if len(src.Choices[0].Delta.Content) == 0 {
+		fmt.Println("choices empty", src.Choices)
+		dataChan <- data
+		isOK <- struct{}{}
+		return
+	}
+	dst = src
+	for _, word := range strings.Split(src.Choices[0].Delta.Content, "") {
+		dst.Choices[0].Delta.Content = word
+		out, err := json.Marshal(dst)
+		if err != nil {
+			fmt.Println("gg")
+			isOK <- struct{}{}
+			return
+		}
+		time.Sleep(speed)
+		dataChan <- d + string(out)
+	}
+	isOK <- struct{}{}
 }
 
 func openaiHandler(c *gin.Context, resp *http.Response, consumeQuota bool, promptTokens int, model string) (*OpenAIErrorWithStatusCode, *Usage) {

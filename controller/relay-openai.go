@@ -9,6 +9,8 @@ import (
 	"io"
 	"net/http"
 	"one-api/common"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -41,8 +43,15 @@ func openaiStreamHandler(c *gin.Context, resp *http.Response, relayMode int) (*O
 			}
 
 			// 控制流传输的速度
-			isOK := make(chan struct{})
 			speed := 15 * time.Millisecond
+			speedEnv := os.Getenv("STREAM_SPEED")
+			if speedEnv != "" {
+				atoi, err := strconv.Atoi(speedEnv)
+				if err == nil {
+					speed = time.Duration(atoi) * time.Millisecond
+				}
+			}
+			isOK := make(chan struct{})
 			go controlStreamSpeed(dataChan, data, isOK, speed)
 			<-isOK
 			// dataChan <- data

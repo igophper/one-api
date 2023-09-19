@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"github.com/gin-gonic/gin"
 	"io"
 	"net/http"
@@ -144,19 +143,22 @@ func controlStreamSpeed(dataChan chan string, data string, isOK chan struct{}, s
 	var src, dst TR
 	err := json.Unmarshal([]byte(j), &src)
 	if err != nil {
-		fmt.Println("json err:", data)
+		common.SysLog("control_stream_speed json err")
+		//fmt.Println("json err:", data)
 		dataChan <- data
 		isOK <- struct{}{}
 		return
 	}
 	if len(src.Choices) == 0 {
-		fmt.Println("choices err", src.Choices)
+		common.SysLog("control_stream_speed choices err")
+		//fmt.Println("choices err", src.Choices)
 		dataChan <- data
 		isOK <- struct{}{}
 		return
 	}
 	if len(src.Choices[0].Delta.Content) == 0 {
-		fmt.Println("choices empty", src.Choices)
+		common.SysLog("control_stream_speed choices empty")
+		//fmt.Println("choices empty", src.Choices)
 		dataChan <- data
 		isOK <- struct{}{}
 		return
@@ -166,7 +168,7 @@ func controlStreamSpeed(dataChan chan string, data string, isOK chan struct{}, s
 		dst.Choices[0].Delta.Content = word
 		out, err := json.Marshal(dst)
 		if err != nil {
-			fmt.Println("gg")
+			common.SysLog("control_stream_speed err")
 			isOK <- struct{}{}
 			return
 		}
